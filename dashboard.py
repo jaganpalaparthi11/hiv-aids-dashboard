@@ -2,63 +2,17 @@ import pandas as pd
 import streamlit as st
 import plotly.express as px
 import re
-import base64 # Used for encoding the background image
 
 # -----------------------
 # Page Configuration
 # -----------------------
+# --- This is the only change needed for the dark theme ---
 st.set_page_config(
     page_title="Global HIV/AIDS Dashboard",
     page_icon="🌍",
     layout="wide",
     initial_sidebar_state="expanded"
 )
-
-# -----------------------
-# Custom Background Function
-# -----------------------
-def set_background(image_file):
-    """
-    This function sets a background image for the Streamlit app.
-    """
-    try:
-        with open(image_file, "rb") as f:
-            img_bytes = f.read()
-        encoded_img = base64.b64encode(img_bytes).decode()
-        
-        st.markdown(
-            f"""
-            <style>
-            .stApp {{
-                background-image: url("data:image/jpeg;base64,{encoded_img}");
-                background-size: cover;
-                background-position: center;
-                background-repeat: no-repeat;
-                background-attachment: fixed;
-            }}
-            /* Make text readable over a dark background */
-            .stApp h1, .stApp h2, .stApp h3, .stApp p, .stApp label, .stApp .st-bm, .stApp .st-cc {{
-                color: white; 
-                text-shadow: 1px 1px 2px rgba(0,0,0,0.6); 
-            }}
-            /* Style the main content area and sidebar for better readability */
-            .st-emotion-cache-zt5igj.e1y0lbm30, .st-emotion-cache-1wivfjs.e1y0lbm30 {{
-                background-color: rgba(0,0,0,0.5); 
-                padding: 20px;
-                border-radius: 10px;
-            }}
-            </style>
-            """,
-            unsafe_allow_html=True
-        )
-    except FileNotFoundError:
-        st.error("Background image not found. Make sure it's in the same folder as the script.")
-
-
-# --- IMPORTANT: Call the background function here ---
-# Make sure the filename matches your image file exactly.
-set_background('background.jpg') 
-
 
 # -----------------------
 # Load and Clean Data
@@ -131,11 +85,6 @@ st.markdown("An interactive dashboard to explore global data on HIV/AIDS.")
 
 tab1, tab2, tab3 = st.tabs(["Global Overview", "ART Coverage", "Prevention of Mother-to-Child Transmission (PMTCT)"])
 
-# Define a function to make chart backgrounds transparent
-def transparent_bg(fig):
-    fig.update_layout(font_color="white", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
-    return fig
-
 with tab1:
     st.header("Global Overview")
     total_living = data['Count_median_living'].sum()
@@ -152,16 +101,16 @@ with tab1:
         st.subheader("People Living with HIV by WHO Region")
         region_hiv = data.groupby("WHO_Region")['Count_median_living'].sum().reset_index()
         fig1 = px.pie(region_hiv, names="WHO_Region", values="Count_median_living", title="Distribution of People Living with HIV", hole=0.3)
-        st.plotly_chart(transparent_bg(fig1), use_container_width=True)
+        st.plotly_chart(fig1, use_container_width=True)
     with right_col:
         st.subheader("Deaths by WHO Region")
         region_deaths = data.groupby("WHO_Region")['Count_median_deaths'].sum().reset_index()
         fig2 = px.bar(region_deaths, x="WHO_Region", y="Count_median_deaths", color="WHO_Region", title="Total Deaths by WHO Region")
-        st.plotly_chart(transparent_bg(fig2), use_container_width=True)
+        st.plotly_chart(fig2, use_container_width=True)
         
     st.subheader("🗺️ Global Distribution of People Living with HIV")
     fig3 = px.choropleth(data, locations="Country", locationmode="country names", color="Count_median_living", color_continuous_scale="Reds", title="Global Distribution of People Living with HIV", hover_name="Country", hover_data={"Count_median_living": ":,.0f"})
-    st.plotly_chart(transparent_bg(fig3), use_container_width=True)
+    st.plotly_chart(fig3, use_container_width=True)
     
     with st.expander("Raw Data Explorer"):
         st.dataframe(data)
@@ -173,16 +122,16 @@ with tab2:
         st.subheader("ART Coverage in Adults")
         region_art = data.groupby('WHO_Region')['Estimated_ART_coverage_among_people_living_with_HIV_percent_median'].mean().reset_index()
         fig4 = px.bar(region_art, x='WHO_Region', y='Estimated_ART_coverage_among_people_living_with_HIV_percent_median', color='WHO_Region', title="Average ART Coverage (%) in Adults by Region")
-        st.plotly_chart(transparent_bg(fig4), use_container_width=True)
+        st.plotly_chart(fig4, use_container_width=True)
     with right_col:
         st.subheader("Paediatric ART Coverage")
         paediatric_art = data.groupby('WHO_Region')['Estimated_ART_coverage_among_children_percent_median'].mean().reset_index()
         fig5 = px.bar(paediatric_art, x='WHO_Region', y='Estimated_ART_coverage_among_children_percent_median', color='WHO_Region', title="Average Paediatric ART Coverage (%) by Region")
-        st.plotly_chart(transparent_bg(fig5), use_container_width=True)
+        st.plotly_chart(fig5, use_container_width=True)
 
 with tab3:
     st.header("Prevention of Mother-to-Child Transmission (PMTCT)")
     st.subheader("PMTCT Coverage by Region")
     pmtct_region = data.groupby('WHO_Region')['PMTCT_Percentage_Recieved_median'].mean().reset_index()
     fig6 = px.bar(pmtct_region, x='WHO_Region', y='PMTCT_Percentage_Recieved_median', color='WHO_Region', title="Average PMTCT Coverage (%) by Region")
-    st.plotly_chart(transparent_bg(fig6), use_container_width=True)
+    st.plotly_chart(fig6, use_container_width=True)
