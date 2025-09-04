@@ -1,144 +1,202 @@
 import pandas as pd
-import numpy as np
 import streamlit as st
-import matplotlib.pyplot as plt
-import seaborn as sns
-import plotly.express as px   # <-- ADD THIS
-from sklearn.model_selection import train_test_split
-from sklearn.linear_model import LogisticRegression
-from sklearn.ensemble import RandomForestClassifier
+import plotly.express as px
+import re
 
-
-
-
-# --- Page Configuration ---
+# -----------------------
+# Page Configuration
+# -----------------------
 st.set_page_config(
     page_title="Global HIV/AIDS Dashboard",
-    page_icon="⚕️",
+    page_icon="🌍",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# --- Data Loading ---
-# Create a function to cache the data loading
+
+# -----------------------
+# Load and Clean Data
+# -----------------------
 @st.cache_data
-def load_data():
-    # IMPORTANT: Make sure these CSV files are in the same folder as your script
-    try:
-        # Load the raw data first
-        art_coverage_raw = pd.read_csv('ART coverage by country.csv')
-        pediatric_coverage = pd.read_csv('Paediatric ART coverage by country.csv')
-        adult_cases = pd.read_csv('Number of cases in adults (15-49) by country.csv')
-        deaths = pd.read_csv('Number of deaths by country.csv')
-        living_with_hiv = pd.read_csv('Number of people living with HIV by country.csv')
-        pmtct = pd.read_csv("prevention of mother-to-child transmission (PMTCT).csv")
+def load_and_clean_data():
+    # Load all datasets
+    art_coverage = pd.read_csv("ART coverage by country.csv")
+    paediatric_art_coverage = pd.read_csv("Paediatric ART coverage by country.csv")
+    adult_cases = pd.read_csv("Number of cases in adults (15-49) by country.csv")
+    deaths = pd.read_csv("Number of deaths by country.csv")
+    living_with_hiv = pd.read_csv("Number of people living with HIV by country.csv")
+    pmtct = pd.read_csv("prevention of mother-to-child transmission (PMTCT).csv")
 
-        # --- THIS IS THE CORRECTED PART ---
-        # Select only the columns we need from the 'art_coverage_raw' dataframe
-        art_coverage = art_coverage_raw[[
-            'Country',
-            'Estimated ART coverage among people living with HIV (%)_min',
-            'Estimated ART coverage among people living with HIV (%)_max',
-            'WHO Region'
-        ]].copy() # Use .copy() to avoid a potential warning
+    # --- Data Cleaning Function ---
+    def clean_and_extract(df):
+        # Clean column names
+        df.columns = [col.replace(' ', '_').replace('(%)', 'percent').replace('(15-49)', '15_49') for col in df.columns]
 
-        # Now, rename the selected columns
-        art_coverage.columns = ['Country', 'ART_Coverage_Min', 'ART_Coverage_Max', 'WHO_Region']
-        
-        return art_coverage, pediatric_coverage, adult_cases, deaths, living_with_hiv, pmtct
-        
-    except FileNotFoundError:
-        st.error("One or more data files were not found. Please ensure all CSV files are in the correct directory.")
-        return None, None, None, None, None, None
+        cols_to_drop = []
 
-# Load the datasets
-art, ped_art, adult_cases, deaths, living, pmtct = load_data()
+        for col in df.columns:
+            if df[col].dtype == 'object':
+                df[col] = df[col].replace({'Nodata': pd.NA, 'na': pd.NA, 'No data': pd.NA})
+                if df[col].astype(str).str.contains(r'\[(.*?)\]', na=False).any():
+                    new_col_name = col + '_median'
+                    # Handle cases where a '_median' column might already exist from the CSV
+                    if new_col_name not in df.columns:
+                        df[new_col_name] = df[col].apply(
+                            lambda x: float(re.split(r'\s|\[', str(x))[0]) if pd.notna(x) else pd.NA)
+                    cols_to_drop.append(col)
 
-# --- Main Application ---
-if art is not None:
-    st.title("🌎 Global HIV/AIDS Analysis Dashboard")
-    st.markdown("An interactive dashboard to explore global trends in HIV cases, deaths, and treatment coverage.")
+        df = df.drop(columns=list(set(cols_to_drop)))
 
-    # --- Sidebar for Filters ---
-    st.sidebar.header("Dashboard Filters")
-    # Region Filter
-    # Ensure 'WHO_Region' column has no missing values before creating list
-    if 'WHO_Region' in art.columns:
-        region_list = ['All'] + sorted(art['WHO_Region'].dropna().unique().tolist())
-        selected_region = st.sidebar.selectbox(
-            "Select a WHO Region:",
-            region_list
-        )
+        for col in df.columns:
+            if col not in ['Country', 'WHO_Region']:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
 
-        # Filter data based on selection
-        if selected_region != 'All':
-            filtered_art = art[art['WHO_Region'] == selected_region]
-            # Match 'WHO Region' column name which might be different in the 'living' dataframe
-            if 'WHO Region' in living.columns:
-                 filtered_living = living[living['WHO Region'] == selected_region]
-            else: # If column name differs, handle it gracefully
-                 filtered_living = living # Default to all data if column not found
-        else:
-            filtered_art = art
-            filtered_living = living
+        return df
 
-        # --- Dashboard Layout ---
-        st.header(f"Showing Data for: {selected_region}")
+    # Apply cleaning function to all dataframes
+    art_coverage = clean_and_extract(art_coverage)
+    paediatric_art_coverage = clean_and_extract(paediatric_art_coverage)
+    adult_cases = clean_and_extract(adult_cases)
+    deaths = clean_and_extract(deaths)
+    living_with_hiv = clean_and_extract(living_with_hiv)
+    pmtct = clean_and_extract(pmtct)
 
-        # Key Metrics
-        if not filtered_living.empty and 'Number of people living with HIV_median' in filtered_living.columns:
-            total_living_with_hiv = filtered_living['Number of people living with HIV_median'].sum()
-            st.metric(label="Total People Living with HIV", value=f"{total_living_with_hiv:,.0f}")
-        
-        if not filtered_art.empty:
-            avg_art_coverage = filtered_art['ART_Coverage_Max'].mean()
-            st.metric(label="Average Max ART Coverage (%)", value=f"{avg_art_coverage:.2f}%")
+    # --- FIX: Rename columns BEFORE merging to avoid conflicts ---
+    living_with_hiv.rename(columns={'Count_median': 'Count_median_living'}, inplace=True)
+    deaths.rename(columns={'Count_median': 'Count_median_deaths'}, inplace=True)
+    adult_cases.rename(columns={'Count_median': 'Count_median_adult_cases'}, inplace=True)
+    pmtct.rename(columns={'Percentage_Recieved_median': 'PMTCT_Percentage_Recieved_median'}, inplace=True)
 
-        st.markdown("---") # Visual separator
+    # --- Start merging ---
+    # Start with the main dataframe that has the WHO_Region we want to keep
+    df_final = living_with_hiv
 
-        # --- Visualizations ---
-        col3, col4 = st.columns(2)
+    # Create a list of the other dataframes to merge
+    other_dfs = [
+        deaths,
+        adult_cases,
+        art_coverage,
+        paediatric_art_coverage,
+        pmtct
+    ]
 
-        with col3:
-            # 1. ART Coverage by WHO Region (Bar Chart)
-            st.subheader("ART Coverage by WHO Region")
-            if not filtered_art.empty:
-                region_art_coverage = filtered_art.groupby('WHO_Region')['ART_Coverage_Max'].mean().reset_index().sort_values(by='ART_Coverage_Max', ascending=False)
-                fig1 = px.bar(
-                    region_art_coverage,
-                    x='WHO_Region',
-                    y='ART_Coverage_Max',
-                    title='Average Maximum ART Coverage by Region',
-                    labels={'WHO_Region': 'WHO Region', 'ART_Coverage_Max': 'Avg. Max Coverage (%)'},
-                    color='WHO_Region'
-                )
-                fig1.update_layout(xaxis_title="", yaxis_title="Coverage (%)", showlegend=False)
-                st.plotly_chart(fig1, use_container_width=True)
-            else:
-                st.warning("No data available for the selected region.")
+    # Loop through and merge each dataframe
+    for df in other_dfs:
+        # Drop the WHO_Region column from the dataframe to be merged
+        df_to_merge = df.drop(columns=['WHO_Region'], errors='ignore')
+        df_final = pd.merge(df_final, df_to_merge, on='Country', how='outer')
 
-        with col4:
-            # 2. People Living with HIV by Country (Bar Chart)
-            st.subheader("Top 10 Countries (People Living with HIV)")
-            if not filtered_living.empty and 'Number of people living with HIV_median' in filtered_living.columns:
-                top_10_countries = filtered_living.nlargest(10, 'Number of people living with HIV_median')
-                fig2 = px.bar(
-                    top_10_countries,
-                    x='Country',
-                    y='Number of people living with HIV_median',
-                    title='Top 10 Countries by Number of People Living with HIV',
-                    labels={'Country': 'Country', 'Number of people living with HIV_median': 'Number of People'},
-                    color='Country'
-                )
-                fig2.update_layout(xaxis_title="", yaxis_title="Count", showlegend=False)
-                st.plotly_chart(fig2, use_container_width=True)
-            else:
-                st.warning("No data available for the selected region.")
+    return df_final
 
-        # 3. Full Data View
-        st.markdown("---")
-        st.header("Explore the Raw Data")
-        st.dataframe(filtered_art)
 
+data = load_and_clean_data()
+
+# -----------------------
+# Sidebar Filters
+# -----------------------
+st.sidebar.header("🌍 Dashboard Filters")
+if 'WHO_Region' in data.columns and not data['WHO_Region'].dropna().empty:
+    region_list = ["All"] + sorted(data["WHO_Region"].dropna().unique().tolist())
+    selected_region = st.sidebar.selectbox("Select WHO Region:", region_list)
+
+    if selected_region != "All":
+        data = data[data["WHO_Region"] == selected_region]
 else:
-    st.error("Dashboard cannot be loaded. Please check the data files.")
+    st.sidebar.warning("WHO Region data not available for filtering.")
+
+# -----------------------
+# Main Dashboard
+# -----------------------
+st.title("🌍 Global HIV/AIDS Dashboard")
+st.markdown("An interactive dashboard to explore global data on HIV/AIDS.")
+
+tab1, tab2, tab3 = st.tabs(["Global Overview", "ART Coverage", "Prevention of Mother-to-Child Transmission (PMTCT)"])
+
+with tab1:
+    st.header("Global Overview")
+
+    # Key Metrics
+    total_living = data['Count_median_living'].sum()
+    total_deaths = data['Count_median_deaths'].sum()
+    total_adult_cases = data['Count_median_adult_cases'].sum()
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("People Living with HIV", f"{total_living:,.0f}")
+    col2.metric("New Cases in Adults (15-49)", f"{total_adult_cases:,.0f}")
+    col3.metric("Deaths", f"{total_deaths:,.0f}")
+
+    st.markdown("---")
+
+    # Charts
+    left_col, right_col = st.columns(2)
+
+    with left_col:
+        st.subheader("People Living with HIV by WHO Region")
+        region_hiv = data.groupby("WHO_Region")['Count_median_living'].sum().reset_index()
+        fig1 = px.pie(
+            region_hiv, names="WHO_Region", values="Count_median_living",
+            title="Distribution of People Living with HIV", hole=0.3
+        )
+        st.plotly_chart(fig1, use_container_width=True)
+
+    with right_col:
+        st.subheader("Deaths by WHO Region")
+        region_deaths = data.groupby("WHO_Region")['Count_median_deaths'].sum().reset_index()
+        fig2 = px.bar(
+            region_deaths, x="WHO_Region", y="Count_median_deaths",
+            color="WHO_Region", title="Total Deaths by WHO Region"
+        )
+        st.plotly_chart(fig2, use_container_width=True)
+
+    # Global Map
+    st.subheader("🗺️ Global Distribution of People Living with HIV")
+    fig3 = px.choropleth(
+        data,
+        locations="Country",
+        locationmode="country names",
+        color="Count_median_living",
+        color_continuous_scale="Reds",
+        title="Global Distribution of People Living with HIV",
+        hover_name="Country",
+        hover_data={"Count_median_living": ":,.0f"}
+    )
+    st.plotly_chart(fig3, use_container_width=True)
+
+    # Data Table
+    st.subheader("Raw Data Explorer")
+    st.dataframe(data)
+
+with tab2:
+    st.header("ART Coverage")
+
+    left_col, right_col = st.columns(2)
+    with left_col:
+        st.subheader("ART Coverage in Adults")
+        region_art = data.groupby('WHO_Region')[
+            'Estimated_ART_coverage_among_people_living_with_HIV_percent_median'].mean().reset_index()
+        fig4 = px.bar(
+            region_art, x='WHO_Region', y='Estimated_ART_coverage_among_people_living_with_HIV_percent_median',
+            color='WHO_Region', title="Average ART Coverage (%) in Adults by Region"
+        )
+        st.plotly_chart(fig4, use_container_width=True)
+
+    with right_col:
+        st.subheader("Paediatric ART Coverage")
+        paediatric_art = data.groupby('WHO_Region')[
+            'Estimated_ART_coverage_among_children_percent_median'].mean().reset_index()
+        fig5 = px.bar(
+            paediatric_art, x='WHO_Region', y='Estimated_ART_coverage_among_children_percent_median',
+            color='WHO_Region', title="Average Paediatric ART Coverage (%) by Region"
+        )
+        st.plotly_chart(fig5, use_container_width=True)
+
+with tab3:
+    st.header("Prevention of Mother-to-Child Transmission (PMTCT)")
+
+    st.subheader("PMTCT Coverage by Region")
+    pmtct_region = data.groupby('WHO_Region')['PMTCT_Percentage_Recieved_median'].mean().reset_index()
+    fig6 = px.bar(
+        pmtct_region, x='WHO_Region', y='PMTCT_Percentage_Recieved_median',
+        color='WHO_Region', title="Average PMTCT Coverage (%) by Region"
+    )
+    st.plotly_chart(fig6, use_container_width=True)
