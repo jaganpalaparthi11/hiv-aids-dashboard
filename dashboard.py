@@ -1,18 +1,19 @@
 import pandas as pd
 import streamlit as st
 import plotly.express as px
+import plotly.graph_objects as go
 import re
 
 # -----------------------
 # Page Configuration
 # -----------------------
-# --- This is the only change needed for the dark theme ---
 st.set_page_config(
     page_title="Global HIV/AIDS Dashboard",
     page_icon="🌍",
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
 
 # -----------------------
 # Load and Clean Data
@@ -36,32 +37,31 @@ def load_and_clean_data():
                 if df[col].astype(str).str.contains(r'\[(.*?)\]', na=False).any():
                     new_col_name = col + '_median'
                     if new_col_name not in df.columns:
-                        df[new_col_name] = df[col].apply(lambda x: float(re.split(r'\s|\[', str(x))[0]) if pd.notna(x) else pd.NA)
+                        df[new_col_name] = df[col].apply(
+                            lambda x: float(re.split(r'\s|\[', str(x))[0]) if pd.notna(x) else pd.NA)
                     cols_to_drop.append(col)
         df = df.drop(columns=list(set(cols_to_drop)))
         for col in df.columns:
             if col not in ['Country', 'WHO_Region']:
-                 df[col] = pd.to_numeric(df[col], errors='coerce')
+                df[col] = pd.to_numeric(df[col], errors='coerce')
         return df
 
-    # Apply cleaning function to all dataframes
     all_dfs = [art_coverage, paediatric_art_coverage, adult_cases, deaths, living_with_hiv, pmtct]
     cleaned_dfs = [clean_and_extract(df) for df in all_dfs]
     art_coverage, paediatric_art_coverage, adult_cases, deaths, living_with_hiv, pmtct = cleaned_dfs
 
-    # Rename columns BEFORE merging to avoid conflicts
     living_with_hiv.rename(columns={'Count_median': 'Count_median_living'}, inplace=True)
     deaths.rename(columns={'Count_median': 'Count_median_deaths'}, inplace=True)
     adult_cases.rename(columns={'Count_median': 'Count_median_adult_cases'}, inplace=True)
     pmtct.rename(columns={'Percentage_Recieved_median': 'PMTCT_Percentage_Recieved_median'}, inplace=True)
 
-    # Start merging
     df_final = living_with_hiv
     other_dfs = [deaths, adult_cases, art_coverage, paediatric_art_coverage, pmtct]
     for df in other_dfs:
         df_to_merge = df.drop(columns=['WHO_Region'], errors='ignore')
         df_final = pd.merge(df_final, df_to_merge, on='Country', how='outer')
     return df_final
+
 
 data = load_and_clean_data()
 
@@ -83,35 +83,73 @@ else:
 st.title("🌍 Global HIV/AIDS Dashboard")
 st.markdown("An interactive dashboard to explore global data on HIV/AIDS.")
 
+
+def create_kpi_card(title, value, color):
+    fig = go.Figure(go.Indicator(
+        mode="number",
+        value=value,
+        title={"text": title, "font": {"size": 24}},
+        number={'font': {'size': 48, 'color': color}},
+        domain={'row': 0, 'column': 0}
+    ))
+    fig.update_layout(height=150, paper_bgcolor='rgba(0,0,0,0)', margin=dict(l=10, r=10, t=40, b=10))
+    return fig
+
+
+total_living = data['Count_median_living'].sum()
+total_deaths = data['Count_median_deaths'].sum()
+total_adult_cases = data['Count_median_adult_cases'].sum()
+
+col1, col2, col3 = st.columns(3)
+with col1:
+    st.plotly_chart(create_kpi_card("People Living with HIV", f"{total_living:,.0f}", "#FF4B4B"),
+                    use_container_width=True)
+with col2:
+    st.plotly_chart(create_kpi_card("New Cases (Adults)", f"{total_adult_cases:,.0f}", "#3D9970"),
+                    use_container_width=True)
+with col3:
+    st.plotly_chart(create_kpi_card("Total Deaths", f"{total_deaths:,.0f}", "#0074D9"), use_container_width=True)
+
+st.markdown("---")
+
 tab1, tab2, tab3 = st.tabs(["Global Overview", "ART Coverage", "Prevention of Mother-to-Child Transmission (PMTCT)"])
 
 with tab1:
     st.header("Global Overview")
-    total_living = data['Count_median_living'].sum()
-    total_deaths = data['Count_median_deaths'].sum()
-    total_adult_cases = data['Count_median_adult_cases'].sum()
-    col1, col2, col3 = st.columns(3)
-    col1.metric("People Living with HIV", f"{total_living:,.0f}")
-    col2.metric("New Cases in Adults (15-49)", f"{total_adult_cases:,.0f}")
-    col3.metric("Deaths", f"{total_deaths:,.0f}")
-    st.markdown("---")
-    
     left_col, right_col = st.columns(2)
     with left_col:
         st.subheader("People Living with HIV by WHO Region")
         region_hiv = data.groupby("WHO_Region")['Count_median_living'].sum().reset_index()
-        fig1 = px.pie(region_hiv, names="WHO_Region", values="Count_median_living", title="Distribution of People Living with HIV", hole=0.3)
+        fig1 = px.pie(region_hiv, names="WHO_Region", values="Count_median_living",
+                      title="Distribution of People Living with HIV", hole=0.3)
         st.plotly_chart(fig1, use_container_width=True)
     with right_col:
         st.subheader("Deaths by WHO Region")
         region_deaths = data.groupby("WHO_Region")['Count_median_deaths'].sum().reset_index()
-        fig2 = px.bar(region_deaths, x="WHO_Region", y="Count_median_deaths", color="WHO_Region", title="Total Deaths by WHO Region")
+        fig2 = px.bar(region_deaths, x="WHO_Region", y="Count_median_deaths", color="WHO_Region",
+                      title="Total Deaths by WHO Region")
         st.plotly_chart(fig2, use_container_width=True)
-        
+
     st.subheader("🗺️ Global Distribution of People Living with HIV")
-    fig3 = px.choropleth(data, locations="Country", locationmode="country names", color="Count_median_living", color_continuous_scale="Reds", title="Global Distribution of People Living with HIV", hover_name="Country", hover_data={"Count_median_living": ":,.0f"})
+
+    # --- MAP OPTIMIZATION ---
+    # Create a smaller DataFrame with only the data needed for the map
+    map_data = data[['Country', 'Count_median_living']].dropna()
+
+    fig3 = px.choropleth(
+        map_data,  # Use the smaller, optimized DataFrame
+        locations="Country",
+        locationmode="country names",
+        color="Count_median_living",
+        color_continuous_scale="Reds",
+        title="Global Distribution of People Living with HIV",
+        hover_name="Country",
+        hover_data={"Count_median_living": ":,.0f"}
+    )
+    # Further optimize by simplifying the layout
+    fig3.update_layout(margin={"r": 0, "t": 40, "l": 0, "b": 0})
     st.plotly_chart(fig3, use_container_width=True)
-    
+
     with st.expander("Raw Data Explorer"):
         st.dataframe(data)
 
@@ -120,18 +158,24 @@ with tab2:
     left_col, right_col = st.columns(2)
     with left_col:
         st.subheader("ART Coverage in Adults")
-        region_art = data.groupby('WHO_Region')['Estimated_ART_coverage_among_people_living_with_HIV_percent_median'].mean().reset_index()
-        fig4 = px.bar(region_art, x='WHO_Region', y='Estimated_ART_coverage_among_people_living_with_HIV_percent_median', color='WHO_Region', title="Average ART Coverage (%) in Adults by Region")
+        region_art = data.groupby('WHO_Region')[
+            'Estimated_ART_coverage_among_people_living_with_HIV_percent_median'].mean().reset_index()
+        fig4 = px.bar(region_art, x='WHO_Region',
+                      y='Estimated_ART_coverage_among_people_living_with_HIV_percent_median', color='WHO_Region',
+                      title="Average ART Coverage (%) in Adults by Region")
         st.plotly_chart(fig4, use_container_width=True)
     with right_col:
         st.subheader("Paediatric ART Coverage")
-        paediatric_art = data.groupby('WHO_Region')['Estimated_ART_coverage_among_children_percent_median'].mean().reset_index()
-        fig5 = px.bar(paediatric_art, x='WHO_Region', y='Estimated_ART_coverage_among_children_percent_median', color='WHO_Region', title="Average Paediatric ART Coverage (%) by Region")
+        paediatric_art = data.groupby('WHO_Region')[
+            'Estimated_ART_coverage_among_children_percent_median'].mean().reset_index()
+        fig5 = px.bar(paediatric_art, x='WHO_Region', y='Estimated_ART_coverage_among_children_percent_median',
+                      color='WHO_Region', title="Average Paediatric ART Coverage (%) by Region")
         st.plotly_chart(fig5, use_container_width=True)
 
 with tab3:
     st.header("Prevention of Mother-to-Child Transmission (PMTCT)")
     st.subheader("PMTCT Coverage by Region")
     pmtct_region = data.groupby('WHO_Region')['PMTCT_Percentage_Recieved_median'].mean().reset_index()
-    fig6 = px.bar(pmtct_region, x='WHO_Region', y='PMTCT_Percentage_Recieved_median', color='WHO_Region', title="Average PMTCT Coverage (%) by Region")
+    fig6 = px.bar(pmtct_region, x='WHO_Region', y='PMTCT_Percentage_Recieved_median', color='WHO_Region',
+                  title="Average PMTCT Coverage (%) by Region")
     st.plotly_chart(fig6, use_container_width=True)
