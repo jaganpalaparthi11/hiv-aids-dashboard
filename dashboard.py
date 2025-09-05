@@ -19,9 +19,10 @@ st.set_page_config(
 # -----------------------
 # Background Image Function
 # -----------------------
-def set_background(image_file):
+
+def set_background(image_file, opacity=0.3): # Added opacity parameter
     """
-    This function sets a background image for the Streamlit app.
+    This function sets a background image for the Streamlit app with adjustable transparency.
     """
     try:
         with open(image_file, "rb") as f:
@@ -32,7 +33,7 @@ def set_background(image_file):
             f"""
             <style>
             .stApp {{
-                background-image: url("data:image/jpeg;base64,{encoded_img}");
+                background-image: linear-gradient(rgba(0,0,0,{1-opacity}), rgba(0,0,0,{1-opacity})), url("data:image/jpeg;base64,{encoded_img}");
                 background-size: cover;
                 background-position: center;
                 background-repeat: no-repeat;
@@ -41,11 +42,11 @@ def set_background(image_file):
             /* Make text readable over the background */
             .stApp h1, .stApp h2, .stApp h3, .stApp p, .stApp label, .stApp .st-bm, .stApp .st-cc {{
                 color: white; 
-                text-shadow: 1px 1px 2px rgba(0,0,0,0.6); 
+                text-shadow: 1px 1px 2px rgba(0,0,0,0.8); /* Stronger text shadow for readability */
             }}
             /* Style the main content area and sidebar for better readability */
             .st-emotion-cache-zt5igj.e1y0lbm30, .st-emotion-cache-1wivfjs.e1y0lbm30 {{
-                background-color: rgba(0,0,0,0.5); 
+                background-color: rgba(0,0,0,0.6); /* Slightly more opaque for content */
                 padding: 20px;
                 border-radius: 10px;
             }}
@@ -59,7 +60,6 @@ def set_background(image_file):
         )
     except FileNotFoundError:
         st.error("Background image not found. Make sure it's in the same folder as the script.")
-
 # --- Call the background function ---
 # IMPORTANT: Make sure this filename matches your image file exactly.
 set_background('background.jpg.jpg')
