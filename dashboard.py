@@ -3,170 +3,246 @@ import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
 import re
-import streamlit_shadcn_ui as ui
 
 # -----------------------
 # Page Configuration
 # -----------------------
 st.set_page_config(
-    page_title="Global HIV/AIDS Dashboard",
-    page_icon="🌍",
+    page_title="Global HIV/AIDS Analytics Dashboard",
+    page_icon="🩸",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# --- 1. Custom CSS for Cards and Styling ---
+# -----------------------
+# Custom Styling (CSS)
+# -----------------------
+# This CSS creates the dark theme, card styles, and subtle background
 st.markdown("""
 <style>
-    /* Main app background */
+    /* Main App Styling */
     .stApp {
-        background-color: #F0F2F6;
+        background-color: #0E1117;
+        color: #FAFAFA;
     }
-    /* Custom Card Style */
+    /* Sidebar Styling */
+    .st-emotion-cache-16txtl3 {
+        background-color: #1A1C2A;
+    }
+    /* Custom Card for Visuals */
     .card {
-        background-color: white;
+        background-color: #1A1C2A;
         border-radius: 10px;
-        padding: 20px;
+        padding: 25px;
         box-shadow: 0 4px 8px 0 rgba(0,0,0,0.2);
         transition: 0.3s;
-        margin-bottom: 20px;
+        height: 100%;
     }
     .card:hover {
         box-shadow: 0 8px 16px 0 rgba(0,0,0,0.2);
     }
-    /* Style for the headers inside the cards */
-    .card h2 {
-        font-size: 1.5rem;
-        font-weight: 600;
-        color: #31333F;
-        margin-bottom: 15px;
+    /* Metric styling */
+    .metric-value {
+        font-size: 2.5rem;
+        font-weight: 700;
+        color: #2ECC71; /* A vibrant green */
     }
+    .metric-label {
+        font-size: 1rem;
+        color: #A0AEC0; /* A lighter gray */
+    }
+    /* Removing Streamlit branding */
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
 </style>
 """, unsafe_allow_html=True)
 
 
 # -----------------------
-# Load and Clean Data (This section remains the same)
+# Data Loading and Cleaning
 # -----------------------
 @st.cache_data
 def load_and_clean_data():
-    # (The data loading and cleaning function is unchanged)
-    art_coverage = pd.read_csv("ART coverage by country.csv")
-    paediatric_art_coverage = pd.read_csv("Paediatric ART coverage by country.csv")
-    adult_cases = pd.read_csv("Number of cases in adults (15-49) by country.csv")
-    deaths = pd.read_csv("Number of deaths by country.csv")
-    living_with_hiv = pd.read_csv("Number of people living with HIV by country.csv")
-    pmtct = pd.read_csv("prevention of mother-to-child transmission (PMTCT).csv")
+    files = {
+        "art": "ART coverage by country.csv",
+        "paediatric_art": "Paediatric ART coverage by country.csv",
+        "adult_cases": "Number of cases in adults (15-49) by country.csv",
+        "deaths": "Number of deaths by country.csv",
+        "living": "Number of people living with HIV by country.csv",
+        "pmtct": "prevention of mother-to-child transmission (PMTCT).csv"
+    }
+    
+    dataframes = {name: pd.read_csv(path) for name, path in files.items()}
 
     def clean_and_extract(df):
-        df.columns = [col.replace(' ', '_').replace('(%)', 'percent').replace('(15-49)', '15_49') for col in df.columns]
-        cols_to_drop = []
+        df.columns = [re.sub(r'[^A-Za-z0-9_]+', '', col).replace(' ', '_') for col in df.columns]
         for col in df.columns:
             if df[col].dtype == 'object':
                 df[col] = df[col].replace({'Nodata': pd.NA, 'na': pd.NA, 'No data': pd.NA})
-                if df[col].astype(str).str.contains(r'\[(.*?)\]', na=False).any():
-                    new_col_name = col + '_median'
-                    if new_col_name not in df.columns:
-                        df[new_col_name] = df[col].apply(lambda x: float(re.split(r'\s|\[', str(x))[0]) if pd.notna(x) else pd.NA)
-                    cols_to_drop.append(col)
-        df = df.drop(columns=list(set(cols_to_drop)))
-        for col in df.columns:
-            if col not in ['Country', 'WHO_Region']:
-                 df[col] = pd.to_numeric(df[col], errors='coerce')
+                if df[col].astype(str).str.contains(r'\[', na=False).any():
+                    df[f'{col}_median'] = df[col].apply(lambda x: float(re.split(r'\s|\[', str(x))[0]) if pd.notna(x) else pd.NA)
+        
+        # Select only necessary columns to avoid clutter
+        median_cols = [col for col in df.columns if 'median' in col]
+        base_cols = ['Country', 'WHORegion']
+        keep_cols = base_cols + median_cols
+        
+        # Filter for columns that actually exist in the dataframe
+        df = df[[col for col in keep_cols if col in df.columns]]
+        
+        # Rename for simplicity
+        df = df.rename(columns={'WHORegion': 'WHO_Region'})
+        
         return df
 
-    all_dfs = [art_coverage, paediatric_art_coverage, adult_cases, deaths, living_with_hiv, pmtct]
-    cleaned_dfs = [clean_and_extract(df) for df in all_dfs]
-    art_coverage, paediatric_art_coverage, adult_cases, deaths, living_with_hiv, pmtct = cleaned_dfs
-
-    living_with_hiv.rename(columns={'Count_median': 'Count_median_living'}, inplace=True)
-    deaths.rename(columns={'Count_median': 'Count_median_deaths'}, inplace=True)
-    adult_cases.rename(columns={'Count_median': 'Count_median_adult_cases'}, inplace=True)
-    pmtct.rename(columns={'Percentage_Recieved_median': 'PMTCT_Percentage_Recieved_median'}, inplace=True)
-
-    df_final = living_with_hiv
-    other_dfs = [deaths, adult_cases, art_coverage, paediatric_art_coverage, pmtct]
-    for df in other_dfs:
-        df_to_merge = df.drop(columns=['WHO_Region'], errors='ignore')
-        df_final = pd.merge(df_final, df_to_merge, on='Country', how='outer')
-    return df_final
+    cleaned_dfs = {name: clean_and_extract(df) for name, df in dataframes.items()}
+    
+    df_final = cleaned_dfs['living']
+    for name, df in cleaned_dfs.items():
+        if name != 'living':
+            df_final = pd.merge(df_final, df.drop(columns=['WHO_Region'], errors='ignore'), on='Country', how='outer')
+            
+    return df_final.dropna(subset=['WHO_Region'])
 
 data = load_and_clean_data()
 
 # -----------------------
-# Sidebar
+# Sidebar Filters
 # -----------------------
 st.sidebar.image("https://pngimg.com/uploads/red_ribbon/red_ribbon_PNG3.png", width=100)
-st.sidebar.header("🌍 Dashboard Filters")
-if 'WHO_Region' in data.columns and not data['WHO_Region'].dropna().empty:
-    region_list = ["All"] + sorted(data["WHO_Region"].dropna().unique().tolist())
-    selected_region = st.sidebar.selectbox("Select WHO Region:", region_list)
-    if selected_region != "All":
-        data = data[data["WHO_Region"] == selected_region]
-else:
-    st.sidebar.warning("WHO Region data not available for filtering.")
+st.sidebar.title("Dashboard Controls")
+selected_region = st.sidebar.selectbox(
+    "Select WHO Region:",
+    options=['All'] + sorted(data['WHO_Region'].unique().tolist())
+)
+
+filtered_data = data.copy()
+if selected_region != 'All':
+    filtered_data = data[data['WHO_Region'] == selected_region]
+    
+    country_options = sorted(filtered_data['Country'].unique().tolist())
+    selected_countries = st.sidebar.multiselect(
+        "Select Countries (optional):",
+        options=country_options,
+        default=[]
+    )
+    if selected_countries:
+        filtered_data = filtered_data[filtered_data['Country'].isin(selected_countries)]
 
 # -----------------------
 # Main Dashboard
 # -----------------------
-st.title("🌍 Global HIV/AIDS Dashboard")
-
-# --- Display KPIs using the streamlit-shadcn-ui library ---
-total_living = data['Count_median_living'].sum()
-total_deaths = data['Count_median_deaths'].sum()
-total_adult_cases = data['Count_median_adult_cases'].sum()
-
-cols = st.columns(3)
-with cols[0]:
-    ui.card(title="People Living with HIV", content=f"{total_living:,.0f}", description="Total estimated cases", key="card1").render()
-with cols[1]:
-    ui.card(title="New Cases (Adults)", content=f"{total_adult_cases:,.0f}", description="Adults aged 15-49", key="card2").render()
-with cols[2]:
-    ui.card(title="Total Deaths", content=f"{total_deaths:,.0f}", description="Total estimated deaths", key="card3").render()
-
-st.markdown("---")
+# Dynamic Title
+if selected_region == 'All':
+    st.title("🌍 Global HIV/AIDS Analytics Dashboard")
+else:
+    st.title(f"🌍 HIV/AIDS Analytics: {selected_region}")
 
 
-tab1, tab2, tab3 = st.tabs(["Global Overview", "ART Coverage", "Prevention of Mother-to-Child Transmission (PMTCT)"])
+# --- KPIs ---
+total_living = filtered_data['Count_median'].sum()
+total_deaths = filtered_data['Count_median_1'].sum()
+avg_art_coverage = filtered_data['EstimatedARTcoverageamongpeoplelivingwithHIVpercent_median'].mean()
 
-@st.cache_resource
-def generate_map(map_data):
-    fig = px.choropleth(map_data, locations="Country", locationmode="country names", color="Count_median_living", color_continuous_scale="Reds", hover_name="Country", hover_data={"Count_median_living": ":,.0f"})
-    fig.update_layout(margin={"r":0,"t":0,"l":0,"b":0})
-    return fig
+col1, col2, col3 = st.columns(3)
+with col1:
+    st.markdown(f"""
+    <div class="card">
+        <div class="metric-label">People Living with HIV</div>
+        <div class="metric-value">{total_living:,.0f}</div>
+    </div>
+    """, unsafe_allow_html=True)
+with col2:
+    st.markdown(f"""
+    <div class="card">
+        <div class="metric-label">Total Deaths</div>
+        <div class="metric-value">{total_deaths:,.0f}</div>
+    </div>
+    """, unsafe_allow_html=True)
+with col3:
+    st.markdown(f"""
+    <div class="card">
+        <div class="metric-label">Avg. ART Coverage</div>
+        <div class="metric-value">{avg_art_coverage:.1f}%</div>
+    </div>
+    """, unsafe_allow_html=True)
 
-with tab1:
-    left_col, right_col = st.columns(2)
-    with left_col:
-        # --- 2. Applying the card layout ---
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.markdown("<h2>People Living with HIV by WHO Region</h2>", unsafe_allow_html=True)
-        region_hiv = data.groupby("WHO_Region")['Count_median_living'].sum().reset_index()
-        fig1 = px.pie(region_hiv, names="WHO_Region", values="Count_median_living", hole=0.4)
-        st.plotly_chart(fig1, use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
+st.markdown("<br>", unsafe_allow_html=True)
 
-    with right_col:
-        # --- 2. Applying the card layout ---
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.markdown("<h2>Deaths by WHO Region</h2>", unsafe_allow_html=True)
-        region_deaths = data.groupby("WHO_Region")['Count_median_deaths'].sum().reset_index()
-        fig2 = px.bar(region_deaths, x="WHO_Region", y="Count_median_deaths", color="WHO_Region")
-        st.plotly_chart(fig2, use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
 
+# --- Visualizations ---
+col1, col2 = st.columns((2, 1))
+
+with col1:
     st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.markdown("<h2>Global Distribution of People Living with HIV</h2>", unsafe_allow_html=True)
-    map_data = data[['Country', 'Count_median_living']].dropna()
-    fig3 = generate_map(map_data)
-    st.plotly_chart(fig3, use_container_width=True)
+    st.subheader("Global Distribution of People Living with HIV")
+    map_data = filtered_data[['Country', 'Count_median']].dropna()
+    fig_map = px.choropleth(
+        map_data,
+        locations="Country",
+        locationmode="country names",
+        color="Count_median",
+        color_continuous_scale=px.colors.sequential.Reds,
+        template="plotly_dark",
+        hover_name="Country"
+    )
+    fig_map.update_layout(margin={"r":0,"t":0,"l":0,"b":0}, paper_bgcolor="#1A1C2A")
+    st.plotly_chart(fig_map, use_container_width=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
-# (The other tabs remain the same for now)
-with tab2:
-    st.header("ART Coverage")
-    # ... (rest of the code for tab2)
+with col2:
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.subheader("Cases by Region")
+    region_data = data.groupby('WHO_Region')['Count_median'].sum().reset_index()
+    fig_pie = px.pie(
+        region_data,
+        names='WHO_Region',
+        values='Count_median',
+        template="plotly_dark",
+        hole=0.4
+    )
+    fig_pie.update_layout(paper_bgcolor="#1A1C2A", legend_orientation="h")
+    st.plotly_chart(fig_pie, use_container_width=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
-with tab3:
-    st.header("Prevention of Mother-to-Child Transmission (PMTCT)")
-    # ... (rest of the code for tab3)
+st.markdown("<br>", unsafe_allow_html=True)
+
+col1, col2 = st.columns(2)
+with col1:
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.subheader("ART Coverage (Adult vs. Pediatric)")
+    art_data = filtered_data[['Country', 'EstimatedARTcoverageamongpeoplelivingwithHIVpercent_median', 'EstimatedARTcoverageamongchildrenpercent_median']].dropna()
+    art_data = art_data.melt(id_vars=['Country'], var_name='ART_Type', value_name='Coverage')
+    art_data['ART_Type'] = art_data['ART_Type'].replace({
+        'EstimatedARTcoverageamongpeoplelivingwithHIVpercent_median': 'Adults',
+        'EstimatedARTcoverageamongchildrenpercent_median': 'Children'
+    })
+    fig_art = px.bar(
+        art_data.groupby('ART_Type')['Coverage'].mean().reset_index(),
+        x='ART_Type',
+        y='Coverage',
+        color='ART_Type',
+        template="plotly_dark",
+        title="Average Coverage"
+    )
+    fig_art.update_layout(paper_bgcolor="#1A1C2A")
+    st.plotly_chart(fig_art, use_container_width=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+with col2:
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.subheader("Prevention of Mother-to-Child Transmission")
+    pmtct_data = filtered_data[['Country', 'PercentageRecieved_median']].dropna()
+    avg_pmtct = pmtct_data['PercentageRecieved_median'].mean()
+    fig_pmtct = go.Figure(go.Indicator(
+        mode="gauge+number",
+        value=avg_pmtct,
+        title={'text': "Average PMTCT Coverage"},
+        gauge={'axis': {'range': [None, 100]}, 'bar': {'color': "#2ECC71"}}
+    ))
+    fig_pmtct.update_layout(paper_bgcolor="#1A1C2A", font={'color': "white"})
+    st.plotly_chart(fig_pmtct, use_container_width=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+with st.expander("Explore the Raw Data"):
+    st.dataframe(filtered_data)
