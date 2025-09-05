@@ -21,7 +21,7 @@ st.markdown("""
 <style>
     /* Main App Styling */
     .stApp {
-        background-color: #0E1117;
+        background-color:#1E1E2F;
         color: #FAFAFA;
     }
     /* Sidebar Styling */
