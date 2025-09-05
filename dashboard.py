@@ -3,6 +3,7 @@ import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
 import re
+import streamlit_shadcn_ui as ui # Import the new component library
 
 # -----------------------
 # Page Configuration
@@ -65,9 +66,7 @@ data = load_and_clean_data()
 # -----------------------
 # Sidebar
 # -----------------------
-# --- NEW: Add an icon to the sidebar ---
 st.sidebar.image("https://pngimg.com/uploads/red_ribbon/red_ribbon_PNG3.png", width=100)
-
 st.sidebar.header("🌍 Dashboard Filters")
 if 'WHO_Region' in data.columns and not data['WHO_Region'].dropna().empty:
     region_list = ["All"] + sorted(data["WHO_Region"].dropna().unique().tolist())
@@ -83,34 +82,25 @@ else:
 st.title("🌍 Global HIV/AIDS Dashboard")
 st.markdown("An interactive dashboard to explore global data on HIV/AIDS.")
 
-def create_kpi_card(title, value, color):
-    fig = go.Figure(go.Indicator(
-        mode = "number",
-        value = value,
-        title = {"text": title, "font": {"size": 24}},
-        number = {'font': {'size': 48, 'color': color}, 'valueformat': ',.0f'},
-        domain = {'row': 0, 'column': 0}
-    ))
-    fig.update_layout(height=150, paper_bgcolor='rgba(0,0,0,0)', margin=dict(l=10, r=10, t=40, b=10))
-    return fig
-
+# --- NEW: Display KPIs using the streamlit-shadcn-ui library ---
 total_living = data['Count_median_living'].sum()
 total_deaths = data['Count_median_deaths'].sum()
 total_adult_cases = data['Count_median_adult_cases'].sum()
 
-col1, col2, col3 = st.columns(3)
-with col1:
-    st.plotly_chart(create_kpi_card("People Living with HIV", total_living, "#FF4B4B"), use_container_width=True)
-with col2:
-    st.plotly_chart(create_kpi_card("New Cases (Adults)", total_adult_cases, "#3D9970"), use_container_width=True)
-with col3:
-    st.plotly_chart(create_kpi_card("Total Deaths", total_deaths, "#0074D9"), use_container_width=True)
+cols = st.columns(3)
+with cols[0]:
+    ui.card(title="People Living with HIV", content=f"{total_living:,.0f}", description="Total estimated cases", key="card1").render()
+with cols[1]:
+    ui.card(title="New Cases (Adults)", content=f"{total_adult_cases:,.0f}", description="Adults aged 15-49", key="card2").render()
+with cols[2]:
+    ui.card(title="Total Deaths", content=f"{total_deaths:,.0f}", description="Total estimated deaths", key="card3").render()
 
 st.markdown("---")
 
+
 tab1, tab2, tab3 = st.tabs(["Global Overview", "ART Coverage", "Prevention of Mother-to-Child Transmission (PMTCT)"])
 
-# --- NEW: Cached function for a faster map ---
+
 @st.cache_resource
 def generate_map(map_data):
     fig = px.choropleth(
@@ -142,8 +132,6 @@ with tab1:
 
     st.subheader("🗺️ Global Distribution of People Living with HIV")
     map_data = data[['Country', 'Count_median_living']].dropna()
-    
-    # Call the new cached function to get the map
     fig3 = generate_map(map_data)
     st.plotly_chart(fig3, use_container_width=True)
     
