@@ -62,8 +62,7 @@ def set_background(image_file):
 
 # --- Call the background function ---
 # IMPORTANT: Make sure this filename matches your image file exactly.
-set_background('background.jpg') 
-
+set_background('background.jpg.jpg')
 # -----------------------
 # Load and Clean Data
 # -----------------------
