@@ -17,7 +17,6 @@ st.set_page_config(
 # -----------------------
 # Custom Styling (CSS)
 # -----------------------
-# This CSS creates the dark theme, card styles, and subtle background
 st.markdown("""
 <style>
     /* Main App Styling */
@@ -75,29 +74,34 @@ def load_and_clean_data():
     dataframes = {name: pd.read_csv(path) for name, path in files.items()}
 
     def clean_and_extract(df):
-        df.columns = [re.sub(r'[^A-Za-z0-9_]+', '', col).replace(' ', '_') for col in df.columns]
+        # A more robust column name cleaning
+        df.columns = [col.replace(' (%)', '_percent').replace(' (15-49)', '_15_49').replace(' ', '_') for col in df.columns]
+        
         for col in df.columns:
             if df[col].dtype == 'object':
                 df[col] = df[col].replace({'Nodata': pd.NA, 'na': pd.NA, 'No data': pd.NA})
                 if df[col].astype(str).str.contains(r'\[', na=False).any():
+                    # Create a new median column from the string column
                     df[f'{col}_median'] = df[col].apply(lambda x: float(re.split(r'\s|\[', str(x))[0]) if pd.notna(x) else pd.NA)
         
-        # Select only necessary columns to avoid clutter
+        # Select only necessary columns
         median_cols = [col for col in df.columns if 'median' in col]
-        base_cols = ['Country', 'WHORegion']
+        base_cols = ['Country', 'WHO_Region']
         keep_cols = base_cols + median_cols
         
-        # Filter for columns that actually exist in the dataframe
         df = df[[col for col in keep_cols if col in df.columns]]
-        
-        # Rename for simplicity
-        df = df.rename(columns={'WHORegion': 'WHO_Region'})
-        
         return df
 
     cleaned_dfs = {name: clean_and_extract(df) for name, df in dataframes.items()}
     
+    # --- FIX: Explicitly rename columns before merging ---
+    cleaned_dfs['living'].rename(columns={'Count_median': 'Count_median_living'}, inplace=True)
+    cleaned_dfs['deaths'].rename(columns={'Count_median': 'Count_median_deaths'}, inplace=True)
+    cleaned_dfs['adult_cases'].rename(columns={'Count_median': 'Count_median_adult_cases'}, inplace=True)
+    
+    # Start merge with the 'living' dataframe
     df_final = cleaned_dfs['living']
+    # Merge other dataframes
     for name, df in cleaned_dfs.items():
         if name != 'living':
             df_final = pd.merge(df_final, df.drop(columns=['WHO_Region'], errors='ignore'), on='Country', how='outer')
@@ -136,13 +140,17 @@ if selected_region != 'All':
 if selected_region == 'All':
     st.title("🌍 Global HIV/AIDS Analytics Dashboard")
 else:
-    st.title(f"🌍 HIV/AIDS Analytics: {selected_region}")
+    title_text = f"HIV/AIDS Analytics: {selected_region}"
+    if selected_countries:
+        title_text += f" ({', '.join(selected_countries)})"
+    st.title(f"🌍 {title_text}")
 
 
 # --- KPIs ---
-total_living = filtered_data['Count_median'].sum()
-total_deaths = filtered_data['Count_median_1'].sum()
-avg_art_coverage = filtered_data['EstimatedARTcoverageamongpeoplelivingwithHIVpercent_median'].mean()
+# --- FIX: Use the new, correct column names ---
+total_living = filtered_data['Count_median_living'].sum()
+total_deaths = filtered_data['Count_median_deaths'].sum()
+avg_art_coverage = filtered_data['Estimated_ART_coverage_among_people_living_with_HIV_percent_median'].mean()
 
 col1, col2, col3 = st.columns(3)
 with col1:
@@ -176,12 +184,12 @@ col1, col2 = st.columns((2, 1))
 with col1:
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.subheader("Global Distribution of People Living with HIV")
-    map_data = filtered_data[['Country', 'Count_median']].dropna()
+    map_data = filtered_data[['Country', 'Count_median_living']].dropna()
     fig_map = px.choropleth(
         map_data,
         locations="Country",
         locationmode="country names",
-        color="Count_median",
+        color="Count_median_living",
         color_continuous_scale=px.colors.sequential.Reds,
         template="plotly_dark",
         hover_name="Country"
@@ -193,11 +201,12 @@ with col1:
 with col2:
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.subheader("Cases by Region")
-    region_data = data.groupby('WHO_Region')['Count_median'].sum().reset_index()
+    # Use original unfiltered data for the pie chart to always show global context
+    region_data = data.groupby('WHO_Region')['Count_median_living'].sum().reset_index()
     fig_pie = px.pie(
         region_data,
         names='WHO_Region',
-        values='Count_median',
+        values='Count_median_living',
         template="plotly_dark",
         hole=0.4
     )
@@ -211,11 +220,11 @@ col1, col2 = st.columns(2)
 with col1:
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.subheader("ART Coverage (Adult vs. Pediatric)")
-    art_data = filtered_data[['Country', 'EstimatedARTcoverageamongpeoplelivingwithHIVpercent_median', 'EstimatedARTcoverageamongchildrenpercent_median']].dropna()
+    art_data = filtered_data[['Country', 'Estimated_ART_coverage_among_people_living_with_HIV_percent_median', 'Estimated_ART_coverage_among_children_percent_median']].dropna()
     art_data = art_data.melt(id_vars=['Country'], var_name='ART_Type', value_name='Coverage')
     art_data['ART_Type'] = art_data['ART_Type'].replace({
-        'EstimatedARTcoverageamongpeoplelivingwithHIVpercent_median': 'Adults',
-        'EstimatedARTcoverageamongchildrenpercent_median': 'Children'
+        'Estimated_ART_coverage_among_people_living_with_HIV_percent_median': 'Adults',
+        'Estimated_ART_coverage_among_children_percent_median': 'Children'
     })
     fig_art = px.bar(
         art_data.groupby('ART_Type')['Coverage'].mean().reset_index(),
@@ -232,8 +241,8 @@ with col1:
 with col2:
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.subheader("Prevention of Mother-to-Child Transmission")
-    pmtct_data = filtered_data[['Country', 'PercentageRecieved_median']].dropna()
-    avg_pmtct = pmtct_data['PercentageRecieved_median'].mean()
+    pmtct_data = filtered_data[['Percentage_Recieved_median']].dropna()
+    avg_pmtct = pmtct_data['Percentage_Recieved_median'].mean()
     fig_pmtct = go.Figure(go.Indicator(
         mode="gauge+number",
         value=avg_pmtct,
