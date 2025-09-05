@@ -3,7 +3,7 @@ import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
 import re
-import streamlit_shadcn_ui as ui # Import the new component library
+import streamlit_shadcn_ui as ui
 
 # -----------------------
 # Page Configuration
@@ -82,7 +82,7 @@ else:
 st.title("🌍 Global HIV/AIDS Dashboard")
 st.markdown("An interactive dashboard to explore global data on HIV/AIDS.")
 
-# --- NEW: Display KPIs using the streamlit-shadcn-ui library ---
+# --- Display KPIs using the streamlit-shadcn-ui library ---
 total_living = data['Count_median_living'].sum()
 total_deaths = data['Count_median_deaths'].sum()
 total_adult_cases = data['Count_median_adult_cases'].sum()
@@ -97,10 +97,9 @@ with cols[2]:
 
 st.markdown("---")
 
-
 tab1, tab2, tab3 = st.tabs(["Global Overview", "ART Coverage", "Prevention of Mother-to-Child Transmission (PMTCT)"])
 
-
+# --- Cached function for a faster map ---
 @st.cache_resource
 def generate_map(map_data):
     fig = px.choropleth(
@@ -134,7 +133,7 @@ with tab1:
     map_data = data[['Country', 'Count_median_living']].dropna()
     fig3 = generate_map(map_data)
     st.plotly_chart(fig3, use_container_width=True)
-    
+
     with st.expander("Raw Data Explorer"):
         st.dataframe(data)
 
