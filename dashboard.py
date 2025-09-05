@@ -63,8 +63,11 @@ def load_and_clean_data():
 data = load_and_clean_data()
 
 # -----------------------
-# Sidebar Filters
+# Sidebar
 # -----------------------
+# --- NEW: Add an icon to the sidebar ---
+st.sidebar.image("https://pngimg.com/uploads/red_ribbon/red_ribbon_PNG3.png", width=100)
+
 st.sidebar.header("🌍 Dashboard Filters")
 if 'WHO_Region' in data.columns and not data['WHO_Region'].dropna().empty:
     region_list = ["All"] + sorted(data["WHO_Region"].dropna().unique().tolist())
@@ -80,32 +83,23 @@ else:
 st.title("🌍 Global HIV/AIDS Dashboard")
 st.markdown("An interactive dashboard to explore global data on HIV/AIDS.")
 
-# --- FIX: Updated KPI Card function ---
 def create_kpi_card(title, value, color):
     fig = go.Figure(go.Indicator(
         mode = "number",
-        value = value, # Pass the raw number here
+        value = value,
         title = {"text": title, "font": {"size": 24}},
-        # Tell Plotly how to format the number for display
         number = {'font': {'size': 48, 'color': color}, 'valueformat': ',.0f'},
         domain = {'row': 0, 'column': 0}
     ))
-    fig.update_layout(
-        height=150,
-        paper_bgcolor='rgba(0,0,0,0)',
-        margin=dict(l=10, r=10, t=40, b=10)
-    )
+    fig.update_layout(height=150, paper_bgcolor='rgba(0,0,0,0)', margin=dict(l=10, r=10, t=40, b=10))
     return fig
 
-# Calculate the totals
 total_living = data['Count_median_living'].sum()
 total_deaths = data['Count_median_deaths'].sum()
 total_adult_cases = data['Count_median_adult_cases'].sum()
 
-# Display KPIs using the updated function
 col1, col2, col3 = st.columns(3)
 with col1:
-    # --- FIX: Pass the raw number, NOT the formatted string ---
     st.plotly_chart(create_kpi_card("People Living with HIV", total_living, "#FF4B4B"), use_container_width=True)
 with col2:
     st.plotly_chart(create_kpi_card("New Cases (Adults)", total_adult_cases, "#3D9970"), use_container_width=True)
@@ -116,6 +110,21 @@ st.markdown("---")
 
 tab1, tab2, tab3 = st.tabs(["Global Overview", "ART Coverage", "Prevention of Mother-to-Child Transmission (PMTCT)"])
 
+# --- NEW: Cached function for a faster map ---
+@st.cache_resource
+def generate_map(map_data):
+    fig = px.choropleth(
+        map_data,
+        locations="Country",
+        locationmode="country names",
+        color="Count_median_living",
+        color_continuous_scale="Reds",
+        title="Global Distribution of People Living with HIV",
+        hover_name="Country",
+        hover_data={"Count_median_living": ":,.0f"}
+    )
+    fig.update_layout(margin={"r":0,"t":40,"l":0,"b":0})
+    return fig
 
 with tab1:
     st.header("Global Overview")
@@ -133,17 +142,9 @@ with tab1:
 
     st.subheader("🗺️ Global Distribution of People Living with HIV")
     map_data = data[['Country', 'Count_median_living']].dropna()
-    fig3 = px.choropleth(
-        map_data,
-        locations="Country",
-        locationmode="country names",
-        color="Count_median_living",
-        color_continuous_scale="Reds",
-        title="Global Distribution of People Living with HIV",
-        hover_name="Country",
-        hover_data={"Count_median_living": ":,.0f"}
-    )
-    fig3.update_layout(margin={"r":0,"t":40,"l":0,"b":0})
+    
+    # Call the new cached function to get the map
+    fig3 = generate_map(map_data)
     st.plotly_chart(fig3, use_container_width=True)
     
     with st.expander("Raw Data Explorer"):
